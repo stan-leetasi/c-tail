@@ -134,6 +134,7 @@ void read_stdin(buffer_t *cb)
 
     // Kód ktorý ukončí program ak nie je spustený so vstupom na stdin
     // Bez neho program čaká na vstup zo stdin
+    // Musí byť odkomentovaný aby bol program kompatibilný s UNIX pipe
     /*
     fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK); // Nastavenie stdin streamu do non-blocking módu
     
