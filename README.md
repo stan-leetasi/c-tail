@@ -12,7 +12,7 @@ This program displays the last n lines from a file or the stdin stream. It funct
 
 `./tail [-n COUNT] [FILE]`
 
-`[-n COUNT]`	Specifies the number of lines to display (default: 10)
+`[-n COUNT]`	Specifies the number of lines to display (default: 10)<br>
 `[FILE]` 	Specifies which file to read from (default: stdin stream)
 
 3. Delete the executable with:
