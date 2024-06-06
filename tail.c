@@ -1,6 +1,6 @@
 // tail.c
-// Autor: Stanislav Letaši, FIT
-// vypisuje posledných n riadkov zo súboru alebo stdin streamu
+// Author: Stanislav Letaši
+// Prints out the last n lines from a file or stdin
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,11 +10,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#define MAX_LENGTH 4096 // Maximálna dĺžka stringu/riadku
-#define ALLOC_LENGTH 4098 // Dĺžka stringu pre allocovanie pamäti
+#define MAX_LENGTH 4096 // max length of string or line
+#define ALLOC_LENGTH 4098
 
 /*
- *Definícia štruktúry jednej položky v circular bufferi
+ *Element in circular buffer
  */
 typedef struct element_t
 {
@@ -22,7 +22,7 @@ typedef struct element_t
 } element_t;
 
 /*
- *Definícia štruktúry circular bufferu
+ *Circular buffer struct
  */
 typedef struct buffer_t
 {
@@ -34,13 +34,13 @@ typedef struct buffer_t
 } buffer_t;
 
 /*
- *Vytvorí circular buffer, vracia ukazateľ na cb
+ *Creates circular buffer, returns its pointer
  */
 buffer_t *cb_create(int n)
 {
     if (n <= 0)
     {
-        fprintf(stderr, "Počet riadkov musí byť >= 0\n");
+        fprintf(stderr, "ERR: line count must be >= 0\n");
         exit(1);
     }
 
@@ -48,68 +48,60 @@ buffer_t *cb_create(int n)
 
     if (buffer == NULL)
     {
-        fprintf(stderr, "Zlyhala alokacia buffer v cb_create\n");
+        fprintf(stderr, "ERR: memory allocation failure in cb_create\n");
         exit(1);
     }
 
     buffer->elements = (element_t *)malloc(n * (sizeof(element_t)));
     if (buffer->elements == NULL)
     {
-        fprintf(stderr, "Zlyhala alokacia buffer->elements v cb_create\n");
+        fprintf(stderr, "ERR: memory allocation failure in cb_create\n");
         exit(1);
     }
 
-    buffer->size = 0;
+    buffer->size = buffer->start = buffer->end = 0;
     buffer->capacity = n;
-    buffer->start = 0;
-    buffer->end = 0;
 
     return buffer;
 }
 
-/*
- *Uvoľní všetku pamäť používanú circular bufferom
- */
 void cb_free(buffer_t *cb)
 {
-
+    // for each line in cb
     for (int i = 0; i < cb->size; i++)
     {
-        free(cb->elements[i % cb->capacity].data); // Uvoľnenie alokovanej pamäti každého riakdu v bufferi
+        free(cb->elements[i % cb->capacity].data);
     }
 
-    free(cb->elements); // Uvoľnenie alokovanej pamäti poľa elements
-    free(cb);           // Uvoľnenie alokovanej štruktúry buffer
+    free(cb->elements);
+    free(cb);
 }
 
 /*
- *Vloží riadok do circular bufferu
+ *Inserts line into circular buffer
  */
 void cb_put(buffer_t *cb, char *line)
 {
-    if (cb->size < cb->capacity) // Kým nie je buffer plný, pripočítava sa k počtu položiek uložených v ňom
+    if (cb->size < cb->capacity)
     {
         cb->size = cb->size + 1;
-        cb->elements[cb->end].data = malloc(ALLOC_LENGTH * sizeof(char)); // Alokovanie pamäte pre riadok, ak ešte nebola
+        cb->elements[cb->end].data = malloc(ALLOC_LENGTH * sizeof(char));
         if (cb->elements[cb->end].data == NULL)
         {
-            fprintf(stderr, "Zlyhala alokacia cb->elements[cb->end].data v cb_put\n");
+            fprintf(stderr, "ERR: memory allocation failure in cb_put\n");
             exit(1);
         }
+    }
+    else // start overwriting data
+        cb->start = (cb->start + 1) % cb->capacity; // increment start pointer
+            
+    strcpy(cb->elements[cb->end].data, line); // add new line to cb
+    cb->end = (cb->end + 1) % cb->capacity;   // increment end pointer
 
-        strcpy(cb->elements[cb->end].data, line); // Pridanie riadku do bufferu
-        cb->end = (cb->end + 1) % cb->capacity;   // Posunutie end na ďalší index
-    }
-    else
-    {
-        strcpy(cb->elements[cb->end].data, line);   // Pridanie riadku do bufferu
-        cb->end = (cb->end + 1) % cb->capacity;     // Posunutie end na ďalší index
-        cb->start = (cb->start + 1) % cb->capacity; // Posunutie start na ďalší index
-    }
 }
 
 /*
- *Vracia prvú položku v circular buffery
+ *Returns first element from circular buffer
  */
 element_t *cb_get(buffer_t *cb)
 {
@@ -120,144 +112,116 @@ element_t *cb_get(buffer_t *cb)
 
     int index = cb->start;
 
-    cb->start = (cb->start + 1) % cb->capacity; // Inkrementovanie start indexu
+    cb->start = (cb->start + 1) % cb->capacity; // increment start pointer
     return &(cb->elements[index]);
 }
 
-/*
- *Čítanie vstupu zo stdin
- */
 void read_stdin(buffer_t *cb)
 {
-    char c = getchar(); // Pokus o prečítanie prvého charakteru (v non-blocking móde sa nečaká na zadanie charakteru ak na stdin už nie je vstup)
+    char c;
+    bool first_err = false; // ensures that the error message for a line exceeding the 4096 character limit gets displayed only once
+    char *line = malloc(ALLOC_LENGTH * sizeof(char)); // temporary storage for every read line
 
-
-    // Kód ktorý ukončí program ak nie je spustený so vstupom na stdin
-    // Bez neho program čaká na vstup zo stdin
-    // Musí byť odkomentovaný aby bol program kompatibilný s UNIX pipe
-    /*
-    fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK); // Nastavenie stdin streamu do non-blocking módu
-    
-    if (c == EOF) // Overenie či stdin nie je prázdny
-    {
-        fprintf(stderr, "Na stdin nebol zadany vstup\n");
-        cb_free(cb);
-        exit(1);
-    }
-    else
-    {
-        fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0)); // Vrátenie default nastavení stdin streamu
-        ungetc(c, stdin);                                              // Vrátenie prečítaného charakteru na stdin
-    }
-    */
-
-    bool first_err = false; // Pri prvom presiahnutí MAX_LENGTH sa nastaví na true, aby sa správa o prekročení dĺžky vypísala len raz
-
-    char *line = malloc(ALLOC_LENGTH * sizeof(char)); // Do line sa dočasne ukladá každý prečítaný riadok
     if (line == NULL)
     {
-        fprintf(stderr, "Zlyhala alokacia line v read_stdin\n");
+        fprintf(stderr, "ERR: memory allocation failure in read_stdin\n");
         exit(1);
     }
 
-    while (fgets(line, MAX_LENGTH, stdin) != NULL) // Čítanie riadkov zo stdin
+    while (fgets(line, MAX_LENGTH, stdin) != NULL) // read lines from stdin
     {
 
-        if (strlen(line) >= MAX_LENGTH-1 && line[MAX_LENGTH-1] != '\n') // Ak riadok presiahol dĺžku 4096 charakterov
+        if (strlen(line) >= MAX_LENGTH-1 && line[MAX_LENGTH-1] != '\n') // line exceeded the 4096 character limit
         {
             if (first_err == false)
             {
-                fprintf(stderr, "Riadok prekrocil hranicu 4096 charakterov, zvysne charaktery budu ignorovane\n");
+                fprintf(stderr, "A line has exceeded the 4096 characters limit, the rest of the line's characters will be ignored\n");
                 first_err = true;
             }
 
-            line[MAX_LENGTH-1] = '\n'; // Append newline charakteru na koniec riadku kvôli formátu výpisu
-            line[MAX_LENGTH] = '\0'; // Append '\0' charakteru na koniec riadku kvôli ukončeniu stringu
+            line[MAX_LENGTH-1] = '\n'; // line formatting
+            line[MAX_LENGTH] = '\0'; // end the current string
 
-            while ((c = getchar()) != EOF && c != '\n'); // Načítanie a zahodenie zvyšných riadkov
+            while ((c = getchar()) != EOF && c != '\n'); // read and discard rest of the line's characters
         }
 
-        cb_put(cb, line); // Vloženie riadku do bufferu
+        cb_put(cb, line);
     }
 
-    free(line); // Uvoľnenie miesta alokovaného pre dočasnú premennú line
+    free(line);
 }
 
-/*
- *Čítanie vstupu zo súboru
- */
 void read_file(char *filename, buffer_t *cb)
 {
 
-    if (access(filename, R_OK) != 0) // Overenie či súbor existuje a či sa dá čítať, ak nie, formát vstupu je nesprávny
+    if (access(filename, R_OK) != 0) // check if file exists and is readable
     {
-        fprintf(stderr, "Nespravny format vstupu\n");
+        fprintf(stderr, "ERR: file inaccessible\n");
         cb_free(cb);
         exit(1);
     }
 
     FILE *input = fopen(filename, "r");
 
-    if (input == NULL) // Ak zlyhalo otvorenie vstupného suboru
+    if (input == NULL)
     {
-        fprintf(stderr, "Otvorenie vstupneho suboru zlyhalo\n");
+        fprintf(stderr, "ERR: failed to open file\n");
         exit(1);
     }
 
     if (feof(input))
     {
-        fprintf(stderr, "Zadany subor je prazdny\n");
+        fprintf(stderr, "ERR: file is empty\n");
         cb_free(cb);
         exit(1);
     }
 
-    char *line = malloc(ALLOC_LENGTH * sizeof(char)); // Do line sa dočasne ukladá každý prečítaný riadok
+    char *line = malloc(ALLOC_LENGTH * sizeof(char));
     if (line == NULL)
     {
-        fprintf(stderr, "Zlyhala alokacia line v read_file\n");
+        fprintf(stderr, "ERR: memory allocation failure in read_file\n");
         exit(1);
     }
+
     char c;
+    bool first_err = false; // ensures that the error message for a line exceeding the 4096 character limit gets displayed only once
 
-    bool first_err = false;
-
-    while (fgets(line, MAX_LENGTH, input) != NULL) // Čítanie riadkov zo suboru
+    while (fgets(line, MAX_LENGTH, input) != NULL) // read lines from file
     {
-        if (strlen(line) >= MAX_LENGTH-1 && line[MAX_LENGTH-1] != '\n') // Ak riadok presiahol dĺžku 4096 charakterov
+        if (strlen(line) >= MAX_LENGTH-1 && line[MAX_LENGTH-1] != '\n') // line exceeded the 4096 character limit  
         {
             if (first_err == false)
             {
-                fprintf(stderr, "Riadok prekrocil hranicu 4096 charakterov, zvysne charaktery budu ignorovane\n");
+                fprintf(stderr, "A line has exceeded the 4096 characters limit, the rest of the line's characters will be ignored\n");
                 first_err = true;
             }
 
-            line[MAX_LENGTH-1] = '\n'; // Append newline charakteru na koniec riadku kvôli formátu výpisu
-            line[MAX_LENGTH] = '\0'; // Append '\0' charakteru na koniec riadku kvôli ukončeniu stringu
+            line[MAX_LENGTH-1] = '\n'; // line formatting
+            line[MAX_LENGTH] = '\0'; // end the current string
 
-            while ((c = fgetc(input)) != '\n' && c != EOF); // Načítanie a zahodenie zvyšných charakterov
+            while ((c = fgetc(input)) != '\n' && c != EOF); // read and discard rest of the line's characters
         }
 
-        cb_put(cb, line); // Vloženie riadku do bufferu
+        cb_put(cb, line);
     }
 
-    free(line); // Uvoľnenie miesta alokovaného pre dočasnú premennú line
-
+    free(line);
     fclose(input);
 }
 
 /*
- *Vypíše posledných n (default 10) riadkov zo stdin alebo zo súboru
+ *Prints last n lines (n=10 by default) from stdin or file
  */
 void print_output(buffer_t *cb)
 {
     char *line;
 
-    for (int i = 0; i < cb->size; i++) // Výpis všetkých n riadkov
+    for (int i = 0; i < cb->size; i++)
     {
         line = cb_get(cb)->data;
         if (line == NULL)
         {
-            fprintf(stderr, "Pokus o cb_get nad prazdnym bufferom\n");
+            fprintf(stderr, "ERR: cb_get attempt with empty buffer\n");
             cb_free(cb);
             exit(1);
         }
@@ -269,7 +233,7 @@ int main(int argc, char *argv[])
 {
     buffer_t *cb;
 
-    if (argc == 1) // Nebol zadaný vstup, default option je čítanie zo stdin
+    if (argc == 1) // no input, read from stdin by default
     {
         cb = cb_create(10);
         read_stdin(cb);
@@ -277,7 +241,7 @@ int main(int argc, char *argv[])
         cb_free(cb);
     }
 
-    if (argc == 2) // Predpokladá sa že bol zadaný len názov súboru
+    if (argc == 2) // only filename was input
     {
         cb = cb_create(10);
         read_file(argv[1], cb);
@@ -285,18 +249,18 @@ int main(int argc, char *argv[])
         cb_free(cb);
     }
 
-    if (argc == 3) // Predpokladá sa že bol zadaný len počet riadkov a vstup je na stdin
+    if (argc == 3) // only number of lines was input, read from stdin
     {
         if (strcmp(argv[1], "-n") != 0)
         {
-            fprintf(stderr, "Nespravny format vstupu\n");
+            fprintf(stderr, "ERR: wrong input format\n");
             exit(1);
         }
         else
         {
             char *c;
             int num;
-            long conv = strtol(argv[2], &c, 10); // Pretypovanie programoveho argumentu na int
+            long conv = strtol(argv[2], &c, 10);
             num = conv;
 
             cb = cb_create(num);
@@ -306,18 +270,18 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (argc == 4) // Predpokladá sa že bol zadaný počet riadkov a názov súboru
+    if (argc == 4) // number of lines and filename was input
     {
         if (strcmp(argv[1], "-n") != 0)
         {
-            fprintf(stderr, "Nespravny format vstupu\n");
+            fprintf(stderr, "ERR: wrong input format\n");
             exit(1);
         }
         else
         {
             char *c;
             int num;
-            long conv = strtol(argv[2], &c, 10); // Pretypovanie programoveho argumentu na int
+            long conv = strtol(argv[2], &c, 10);
             num = conv;
 
             cb = cb_create(num);
@@ -329,7 +293,7 @@ int main(int argc, char *argv[])
 
     if (argc > 4)
     {
-        fprintf(stderr, "Nespravny format vstupu\n");
+        fprintf(stderr, "ERR: wrong input format\n");
         exit(1);
     }
 
